@@ -1,0 +1,33 @@
+# General
+.DS_Store
+Thumbs.db
+.vscode
+# Node.js
+/node_modules
+/node_modules/
+/dist
+/build
+
+# Tauri
+/src-tauri/target
+/src-tauri/Cargo.lock
+
+# Rust
+target/
+Cargo.lock
+
+# SvelteKit
+.svelte-kit/
+.svelte/
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# OS generated files
+._*
+*.log
