@@ -1,227 +1,95 @@
-
-// — state
-const menuItems   = ['Chapter Segmentation', 'AI API Settings', 'Textbook Settings'];
-let selectedMenu  = menuItems[0];
-let topText       = '';
-let bottomText    = '';
-
-// — segmentation logic
+// main.js
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import fs from 'fs/promises'
 // @ts-ignore
-function segment(text) {
-  return text.split(/\n{2,}/).join('\n---\n');
-}
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-// — stub Tauri picker (hook up invoke() here)
-async function openFile() {
-  console.log('openFile() not yet implemented');
-}
-
-// — render into #app
-const rootEl = document.getElementById('app');
-if (!rootEl) {
-  throw new Error('Mount point "#app" not found');
-}
-
-function render() {
-  // update derived state
-  bottomText = selectedMenu === 'Chapter Segmentation'
-    ? segment(topText)
-    : '';
-
-  // rebuild DOM
-  // @ts-ignore
-  rootEl.innerHTML = `
-    <main class="flex bg-gray-900 text-gray-900 flex-col h-full">
-     
-
-          ${selectedMenu==='Chapter Segmentation' ? `
-              <div class="w-full flex flex-row">
-
-                  <input accept="application/pdf" id="pdf-upload" type=file class="px-4 py-2 w-1/2 bg-gray-200 text-sm hover:bg-gray-400">
-                  </input>
-                  <button id="downloadBtn" class="px-4 py-2 w-1/2 bg-gray-200 text-sm hover:bg-gray-400">
-                    Download
-                  </button>
-              </div>
-
-              <div id="pdf-container" class="bg-gray-100 p-4"></div>
+// import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
+import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 
+// 1) Shim __dirname & __filename in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-              <textarea id="bottomArea" readonly class="w-full p-2 bg-white resize-none text-sm" placeholder="Segmented chapters will appear here…">
-                ${bottomText}
-              </textarea>
-          
-          ` : `
-            <div class="flex items-center justify-center text-gray-500">
-              ${selectedMenu} panel coming soon.
-            </div>
+const isDev = process.env.NODE_ENV === 'development';
 
-            <div class="flex items-center justify-center h-full text-gray-500">
-              Settings for ${selectedMenu}.
-            </div>
-          `}
-    
-
-            
-            </div>
-    </main>
-  `
-  // @ts-ignore
-  const uploadInput = document.getElementById('pdf-upload');
-
-  // @ts-ignore
-  rootEl.querySelector('#pdf-upload')
-  .addEventListener('change', async (e) => {
-    // @ts-ignore
-    const file = e.target.files[0];
-    if (!file) return;
-    const buffer = await file.arrayBuffer();
-    await renderPDF(buffer);
+async function createWindow() {
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 900,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      preload: path.join(__dirname, 'preload.js'), // if you have one
+    },
   });
 
-
-  // — wire event listeners
-  // @ts-ignore
-  rootEl.querySelectorAll('button[data-item]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      // @ts-ignore
-      selectedMenu = btn.dataset.item;
-      render();
-    });
-  });
-
-  if (selectedMenu === 'Chapter Segmentation') {
-    // @ts-ignore
-    rootEl.querySelector('#topArea')
-      .addEventListener('input', e => {
-        // @ts-ignore
-        topText = e.currentTarget.value;
-        // @ts-ignore
-        rootEl.querySelector('#bottomArea').value = segment(topText);
-      });
-
-    // // @ts-ignore
-    // rootEl.querySelector('#importBtn')
-    //   .addEventListener('click', openFile);
-
-    
-  }
-}
-
-// initial mount
-render();
-
-// @ts-ignore
-async function renderPDF(arrayBuffer) {
-  // @ts-ignore
-  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
-  const pdf = await loadingTask.promise;
-  // @ts-ignore
-  const container = rootEl.querySelector('#pdf-container');
-  // @ts-ignore
-  container.innerHTML = ''; // clear previous runs
-
-  const scale = 1.2; // adjust zoom as you like
-  container.style.overflowY = 'auto'; // Enable vertical scrolling
-  container.style.maxHeight = '500px'; // Set a max height for the container
-  container.style.display = 'flex'; // Use flexbox for centering
-  container.style.flexDirection = 'column'; // Stack canvases vertically
-  container.style.alignItems = 'center'; // Center canvases horizontally
-
-  // Add page count and controls
-  const controls = document.createElement('div');
-  controls.style.display = 'flex';
-  controls.style.justifyContent = 'space-between';
-  controls.style.width = '100%';
-  controls.style.marginBottom = '1rem';
-
-  const pageCount = document.createElement('span');
-  pageCount.textContent = `Page 1 of ${pdf.numPages}`;
-  controls.appendChild(pageCount);
-
-  const printButton = document.createElement('button');
-  printButton.textContent = 'Print';
-  printButton.style.marginRight = '1rem';
-  printButton.addEventListener('click', async () => {
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-
-    const printDocument = printWindow.document;
-    printDocument.body.innerHTML = ''; // Clear any existing content
-
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const vp = page.getViewport({ scale: 1 });
-      const canvas = document.createElement('canvas');
-      canvas.width = vp.width;
-      canvas.height = vp.height;
-
-      await page.render({
-        canvasContext: canvas.getContext('2d'),
-        viewport: vp,
-      }).promise;
-
-      printDocument.body.appendChild(canvas);
-    }
-
-    printWindow.focus();
-    printWindow.print();
-    printWindow.close();
-  });
-  controls.appendChild(printButton);
-
-  const shareButton = document.createElement('button');
-  shareButton.textContent = 'Share';
-  shareButton.addEventListener('click', () => {
-    if (navigator.share) {
-      navigator.share({
-        title: 'PDF Document',
-        text: 'Check out this PDF document!',
-        url: window.location.href,
-      }).catch(console.error);
+  try {
+    if (isDev) {
+      // will reject if Vite server isn’t up
+      await win.loadURL('http://localhost:5173');
+      win.webContents.openDevTools();
     } else {
-      alert('Sharing is not supported in this browser.');
+      // make sure this path actually exists in your built output
+      await win.loadFile(path.join(__dirname, '../src/index.html'));
     }
-  });
-  controls.appendChild(shareButton);
-
-  container.appendChild(controls);
-
-  // Render pages
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const vp = page.getViewport({ scale });
-    const canvas = document.createElement('canvas');
-    canvas.width = vp.width;
-    canvas.height = vp.height;
-    canvas.style.display = 'block';
-    canvas.style.marginBottom = '1rem';
-    // @ts-ignore
-    container.appendChild(canvas);
-
-    await page.render({
-      canvasContext: canvas.getContext('2d'),
-      viewport: vp,
-    }).promise;
-
-    // Update page count on scroll
-    canvas.addEventListener('mouseenter', () => {
-      pageCount.textContent = `Page ${i} of ${pdf.numPages}`;
-    });
+  } catch (err) {
+    console.error('❌ createWindow failed to load content:', err);
+    // optionally: win.destroy();
   }
 }
 
-{/* <aside class="w-64 bg-gray-200 flex flex-col">
-<header class="px-4 py-4 border-b bg-gray-300 text-lg font-semibold">
-  Mibook Menu
-</header>
-<nav class="flex-1 px-2 py-4 space-y-2">
-  ${menuItems.map(item => `
-    <button data-item="${item}"
-      class="w-full text-left px-3 py-2 rounded hover:bg-gray-300 transition
-             ${selectedMenu===item? 'bg-gray-300 font-bold':''}"
-    >${item}</button>
-  `).join('')}
-</nav>
-</aside> */}
+app.whenReady()
+  .then(createWindow)
+  .catch(err => {
+    console.error('❌ app.whenReady() failed:', err);
+    app.quit();
+  });
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow().catch(err => {
+      console.error('❌ createWindow on activate failed:', err);
+    });
+  }
+});
+
+// 2) Global catch so you never miss a rejected promise
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('⚠️  Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+ipcMain.handle('count-chapters', async (_evt, fileData) => {
+  try {
+    // 1) Convert the passed ArrayBuffer to a Uint8Array
+    const uint8ArrayData = new Uint8Array(fileData);
+
+    // 2) Load the PDF from the passed Uint8Array
+    const loadingTask = pdfjsLib.getDocument({ data: uint8ArrayData });
+    const pdf = await loadingTask.promise;
+
+    // 3) Grab the outline (table of contents)
+    //    This returns an array of items, each may have a `.items` array of children
+    const outline = await pdf.getOutline();
+
+    console.log('Outline:', outline);
+
+    // 4) Count only the top-level entries
+    const count = Array.isArray(outline) ? outline.length : 0;
+
+    // 5) Always cleanup
+    await pdf.destroy();
+
+    return { count };
+  } catch (err) {
+    console.error('❌ count-chapters error:', err);
+    return { count: -1, error: err.message };
+  }
+});
