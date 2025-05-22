@@ -6,6 +6,11 @@ import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+
+import { PDFDocument } from 'pdf-lib';
+import JSZip from 'jszip';
+
+
 // import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
 
@@ -91,5 +96,129 @@ ipcMain.handle('count-chapters', async (_evt, fileData) => {
   } catch (err) {
     console.error('❌ count-chapters error:', err);
     return { count: -1, error: err.message };
+  }
+});
+
+ipcMain.handle('split-chapters', async (_evt, fileData) => {
+  try {
+    // 1) Load with pdfjs to get the outline
+    const uint8 = new Uint8Array(fileData);
+    console.log(uint8.subarray(0, 5));  
+
+
+    const pdfjsData = new Uint8Array(uint8);
+    const loadingTask = pdfjsLib.getDocument({ data: pdfjsData });
+    const pdf = await loadingTask.promise;
+    let outline = await pdf.getOutline();
+
+
+
+// If no valid outline, reconstruct it
+    if (!Array.isArray(outline) || outline.length === 0) {
+      const reconstructedOutline = [];
+      const chapterRegex = /chapter\s+\d+/i;
+      // Match standalone Roman numerals anywhere in text
+      const romanNumeralRegex = /\b(i{1,3}|iv|v|vi{0,3}|ix|x)\b/i;
+    
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const normalizedText = textContent.items
+          .map(item => item.str)
+          .join(' ')
+          .replace(/\s+/g, ' ');
+      
+        const chapterMatch = chapterRegex.exec(normalizedText);
+        const romanMatch   = romanNumeralRegex.exec(normalizedText);
+      
+        if (chapterMatch || romanMatch) {
+          const title  = chapterMatch ? chapterMatch[0] : romanMatch[0];
+          const destRef = page.ref;  // PDFPageProxy.ref is the same ref objects getOutline uses
+      
+          reconstructedOutline.push({
+            title,
+            dest:           [ destRef ],  // ← exactly like pdf.getOutline() entries
+            url:            null,
+            unsafeUrl:      undefined,
+            newWindow:      undefined,
+            setOCGState:    undefined,
+            items:          []            // no children
+          });
+        }
+      }
+
+      if (reconstructedOutline.length === 0) {
+        console.error('❌ No chapters found in the PDF.');
+        await pdf.destroy();
+        return null;
+      }
+
+      // Replace original outline with the reconstructed one
+      outline = reconstructedOutline;
+
+      console.log(outline);
+    }
+
+    else {
+      console.log('Outline:', outline);
+    }
+
+    // 2) Resolve each top‐level entry to a page index
+    const entries = [];
+    for (const item of outline) {
+      const title = item.title || 'Untitled';
+      let dest = item.dest;
+      if (typeof dest === 'string') {
+        dest = await pdf.getDestination(dest);
+      }
+      if (!Array.isArray(dest)) continue;
+      const [ref] = dest;
+      const pageIndex = await pdf.getPageIndex(ref);
+      entries.push({ title, pageIndex });
+    }
+    // sort by page
+    entries.sort((a, b) => a.pageIndex - b.pageIndex);
+
+    // 3) Load original into pdf-lib
+    // const originalDoc = await PDFDocument.load(uint8);
+
+    // const uint8 = new Uint8Array(fileData);
+    // const loadingTask = pdfjsLib.getDocument({ data: uint8 });
+
+    const originalDoc = await PDFDocument.load(uint8);
+    const zip = new JSZip();
+
+    for (let i = 0; i < entries.length; i++) {
+      const { title, pageIndex } = entries[i];
+      const nextPage = i + 1 < entries.length
+        ? entries[i + 1].pageIndex
+        : pdf.numPages; // until the end
+
+      // copy pages [pageIndex .. nextPage-1]
+      const newDoc = await PDFDocument.create();
+      const pagesToCopy = [];
+      for (let p = pageIndex; p < nextPage; p++) {
+        pagesToCopy.push(p);
+      }
+      const copied = await newDoc.copyPages(originalDoc, pagesToCopy);
+      copied.forEach(pg => newDoc.addPage(pg));
+
+      const pdfBytes = await newDoc.save();
+      const safeTitle = title
+        .replace(/[<>:"/\\|?*]+/g, '')    // strip illegal chars
+        .slice(0, 50);                    // limit length
+
+      zip.file(`C${i + 1} ${safeTitle}.pdf`, pdfBytes);
+    }
+
+    await pdf.destroy();
+
+    // 4) Generate zip as a Buffer and return
+    const zipBuffer = await zip.generateAsync({ type: 'nodebuffer' });
+    return zipBuffer;
+  } catch (err) {
+    console.error('❌ split-chapters error:', err);
+    // throw so renderer sees an error
+    throw err;
   }
 });

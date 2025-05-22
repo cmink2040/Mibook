@@ -91,21 +91,47 @@ function render() {
   });
 
   if (selectedMenu === 'Chapter Segmentation') {
+    console.log('Chapter Segmentation selected');
     // @ts-ignore
-    rootEl.querySelector('#topArea')
-      .addEventListener('input', e => {
-        // @ts-ignore
-        topText = e.currentTarget.value;
-        // @ts-ignore
-        rootEl.querySelector('#bottomArea').value = segment(topText);
+    // rootEl.querySelector('#topArea')
+    //   .addEventListener('input', e => {
+    //     // @ts-ignore
+    //     topText = e.currentTarget.value;
+    //     // @ts-ignore
+    //     rootEl.querySelector('#bottomArea').value = segment(topText);
+    //   });
+
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    downloadBtn.addEventListener('click', async () => {
+        const fileInput = document.getElementById('pdf-upload');
+        const file = fileInput.files[0];
+        if (!file) {
+          return alert('Please select a PDF first.');
+        }
+        // read it as ArrayBuffer
+        const arrayBuffer = await file.arrayBuffer();
+        try {
+          // invoke the split
+          const zipBuffer = await window.electronAPI.splitAndDownload(arrayBuffer);
+          const url  = URL.createObjectURL(zipBuffer);
+          const a    = document.createElement('a');
+          a.href     = url;
+          a.download = 'chapters.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          console.error('Failed to split chapters:', err);
+          alert('Error splitting chapters: ' + err.message);
+        }
       });
-
-    // // @ts-ignore
-    // rootEl.querySelector('#importBtn')
-    //   .addEventListener('click', openFile);
-
     
   }
+
+
+    
 }
 
 // initial mount
