@@ -4,7 +4,6 @@ let selectedMenu  = menuItems[0];
 let topText       = '';
 let bottomText    = '';
 
-console.log(await window.electronAPI.invokeAI('Tell me the name of the first president of the USA'));
 // — segmentation logic
 // @ts-ignore
 function segment(text) {
