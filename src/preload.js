@@ -16,5 +16,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       console.error('Failed to split chapters:', err);
       throw new Error('Error splitting chapters: ' + err.message);
     }
-  }
+  },
+  invokeAI: (prompt) => 
+    ipcRenderer.invoke('invoke-ai', { prompt })
 });

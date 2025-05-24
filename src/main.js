@@ -13,7 +13,7 @@ import JSZip from 'jszip';
 
 // import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 import * as pdfjsLib from 'pdfjs-dist/legacy/build/pdf.mjs';
-
+import generateContent from './llm.js';
 
 // 1) Shim __dirname & __filename in ESM
 const __filename = fileURLToPath(import.meta.url);
@@ -220,5 +220,16 @@ ipcMain.handle('split-chapters', async (_evt, fileData) => {
     console.error('❌ split-chapters error:', err);
     // throw so renderer sees an error
     throw err;
+  }
+});
+
+ipcMain.handle('invoke-ai', async (_evt, { prompt }) => {
+
+  try {
+    const response = await generateContent(prompt);
+    return response;
+  } catch (err) {
+    console.error('❌ invoke-ai error:', err);
+    return { error: err.message };
   }
 });
